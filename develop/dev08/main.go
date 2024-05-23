@@ -19,7 +19,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
+	"os/exec"
+
+	ps "github.com/mitchellh/go-ps"
 )
 
 type Shell struct {
@@ -51,7 +55,7 @@ func (s *Shell) Start() {
 	}
 
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(s.Out, "Ошибка при считывании: ", err.Error())
+		fmt.Fprintln(s.Out, "Error of reading: ", err.Error())
 	}
 }
 
@@ -60,25 +64,47 @@ func (s *Shell) ProcessPipiline(cmds []string) error {
 }
 
 func (s *Shell) ProcessCommand(cmd string) error {
-	args := strings.Split(cmd, " ")
-	switch args[0] {
+	command, args, _ := strings.Cut(cmd, " ")
+
+	switch command {
 	case "cd":
-		s.cd(args[1:])
+		if err := s.cd(strings.Fields(args)); err != nil {
+			fmt.Fprintln(s.Out, err)
+		}
 	case "pwd":
-		s.pwd()
+		if err := s.pwd(); err != nil {
+			fmt.Fprintln(s.Out, err)
+		}
 	case "echo":
+		if err := s.echo(strings.Split(args, "\"")); err != nil {
+			fmt.Fprintln(s.Out, err)
+		}
 	case "kill":
+		if err := s.kill(strings.Fields(args)); err != nil {
+			fmt.Fprintln(s.Out, err)
+		}
 	case "ps":
+		if err := s.ps(); err != nil {
+			fmt.Fprintln(s.Out, err)
+		}
 	case "quit":
 		fmt.Fprintln(s.Out, "quitting")
 		os.Exit(0)
+	default:
+		// создание нового процесса и выполния команды в нем
+		cmd := exec.Command(command, strings.Fields(args)...)
+		cmd.Stdout = s.Out
+		err := cmd.Run()
+		if err != nil {
+			fmt.Fprintln(s.Out, err)
+		}
 	}
 	return nil
 }
 
 func (s *Shell) cd(args []string) error {
 	if len(args) > 1 {
-		return fmt.Errorf("cd: string not in pwd: %s\n", args)
+		return fmt.Errorf("cd: string not in pwd: %s", args)
 	} else if len(args) == 1 {
 		if err := os.Chdir(args[0]); err != nil {
 			return err
@@ -104,11 +130,51 @@ func (s *Shell) pwd() error {
 }
 
 func (s *Shell) echo(args []string) error {
-	for i := range args {
-		
+	if len(args) % 2 == 0 {
+		return fmt.Errorf("incorrect arguments")
 	}
+	for i := range args {
+		if i % 2 == 1 {
+			fmt.Fprintf(s.Out, "%s", args[i])
+		} else if i == 0 {
+			fmt.Fprint(s.Out, strings.Join(strings.Fields(args[i]), " "))
+		} else {
+			fmt.Fprint(s.Out," ", strings.Join(strings.Fields(args[i]), " "))
+		}
+	}
+	return nil
 }
 
+func (s *Shell) kill(pid []string) []error {
+	errs := make([]error, 0, len(pid))
+	if len(pid) == 0 {
+		return []error{fmt.Errorf("kill: not enough arguments")}
+	} 
+	for i := range pid {
+		if pidInt, err := strconv.Atoi(pid[i]); err != nil {
+			errs = append(errs, err)
+		} else if proc, err := os.FindProcess(pidInt); err != nil {
+			errs = append(errs, err)
+		} else if err = proc.Kill(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errs
+}
+
+func (s *Shell) ps() error {
+	processList, err := ps.Processes()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(s.Out, "%10s\t%10s\t%10s\n", "PID", "PPID", "EXEC")
+	for i := range processList {
+		if processList[i].PPid() > 1 {
+			fmt.Fprintf(s.Out, "%10v\t%10v\t%10v\n", processList[i].Pid(), processList[i].PPid(), processList[i].Executable())
+		}
+	}
+	return  nil
+}
 func main() {
 	NewShell()
 }

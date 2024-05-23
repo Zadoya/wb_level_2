@@ -1,4 +1,4 @@
-package main
+package netcat
 
 import (
 	"flag"
@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-func main() {
+func netcat() {
 	var host, port, protocol string	
 	flag.StringVar(&host, "host", "localhost", "Хост")
 	flag.StringVar(&port, "port", "8080", "Порт")
